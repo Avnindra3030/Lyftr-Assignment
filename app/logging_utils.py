@@ -40,27 +40,44 @@ class CustomJsonFormatter(jsonlogger.JsonFormatter):
 def setup_logging(log_level: str = "INFO"):
     """
     Setup structured JSON logging for the application.
-    
+
     Args:
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
     """
+    # Configure root logger
     logger = logging.getLogger()
     logger.setLevel(log_level.upper())
-    
+
     # Remove existing handlers
     logger.handlers = []
-    
+
     # Create JSON handler for stdout
     json_handler = logging.StreamHandler(sys.stdout)
-    
+
     # Use custom JSON formatter
     formatter = CustomJsonFormatter(
         '%(ts)s %(level)s %(name)s %(message)s'
     )
     json_handler.setFormatter(formatter)
-    
+
     logger.addHandler(json_handler)
-    
+
+    # Configure Uvicorn loggers to use JSON format
+    uvicorn_loggers = [
+        "uvicorn",
+        "uvicorn.error",
+        "uvicorn.access",
+    ]
+
+    for logger_name in uvicorn_loggers:
+        uvicorn_logger = logging.getLogger(logger_name)
+        uvicorn_logger.handlers = []
+        uvicorn_logger.addHandler(json_handler)
+        uvicorn_logger.propagate = False
+
+    # Disable uvicorn.access logger since we have our own middleware
+    logging.getLogger("uvicorn.access").disabled = True
+
     return logger
 
 

@@ -229,3 +229,62 @@ def get_messages(
     logger.info(f"Retrieved {len(messages)} of {total} total messages")
 
     return messages, total
+
+
+def get_stats(db: Session) -> dict:
+    """
+    Get message statistics for the /stats endpoint.
+    
+    Computes:
+    - total_messages: count of all messages
+    - senders_count: number of unique senders
+    - messages_per_sender: top 10 senders by message count (desc)
+    - first_message_ts: earliest timestamp (null if no messages)
+    - last_message_ts: latest timestamp (null if no messages)
+    
+    Returns:
+        Dictionary with stats data
+    """
+    from app.models import Message
+    
+    logger.info("Computing message statistics")
+    
+    # Get total message count
+    total_messages = db.query(func.count(Message.message_id)).scalar() or 0
+    logger.debug(f"Total messages: {total_messages}")
+    
+    # Get unique senders count
+    senders_count = db.query(func.count(func.distinct(Message.from_msisdn))).scalar() or 0
+    logger.debug(f"Unique senders: {senders_count}")
+    
+    # Get top 10 senders by message count (descending)
+    messages_per_sender_query = (
+        db.query(
+            Message.from_msisdn,
+            func.count(Message.message_id).label("count")
+        )
+        .group_by(Message.from_msisdn)
+        .order_by(func.count(Message.message_id).desc())
+        .limit(10)
+        .all()
+    )
+    messages_per_sender = [
+        {"from": row.from_msisdn, "count": row.count}
+        for row in messages_per_sender_query
+    ]
+    logger.debug(f"Top senders: {len(messages_per_sender)}")
+    
+    # Get first and last message timestamps
+    first_message_ts = db.query(func.min(Message.ts)).scalar()
+    last_message_ts = db.query(func.max(Message.ts)).scalar()
+    logger.debug(f"First message: {first_message_ts}, Last message: {last_message_ts}")
+    
+    logger.info(f"Stats computed: {total_messages} messages, {senders_count} senders")
+    
+    return {
+        "total_messages": total_messages,
+        "senders_count": senders_count,
+        "messages_per_sender": messages_per_sender,
+        "first_message_ts": first_message_ts,
+        "last_message_ts": last_message_ts
+    }

@@ -6,7 +6,7 @@ from fastapi import FastAPI, Response, Request, Depends, Header, HTTPException, 
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.storage import init_db, check_db_health, get_db, create_message, get_messages
+from app.storage import init_db, check_db_health, get_db, create_message, get_messages, get_stats
 from app.logging_utils import setup_logging, RequestLoggingMiddleware, log_webhook_data
 from app.utils import verify_hmac_signature
 from app.schemas import (
@@ -16,6 +16,7 @@ from app.schemas import (
     ErrorResponse,
     MessageResponse,
     MessagesListResponse,
+    StatsResponse,
 )
 
 
@@ -293,4 +294,42 @@ async def list_messages(
         total=total,
         limit=limit,
         offset=offset
+    )
+
+
+# =============================================================================
+# Stats Route
+# =============================================================================
+
+@app.get(
+    "/stats",
+    response_model=StatsResponse,
+)
+async def get_statistics(
+    db: Session = Depends(get_db)
+) -> StatsResponse:
+    """
+    Provide simple message-level analytics.
+
+    Response:
+        - total_messages: Total count of all messages
+        - senders_count: Number of unique senders
+        - messages_per_sender: Top 10 senders sorted by count (descending)
+        - first_message_ts: Timestamp of earliest message (null if no messages)
+        - last_message_ts: Timestamp of latest message (null if no messages)
+    """
+    logger.info("GET /stats: computing statistics")
+
+    # Query stats from database
+    stats = get_stats(db)
+
+    logger.debug(f"Stats result: {stats['total_messages']} messages, {stats['senders_count']} senders")
+    logger.info(f"GET /stats: returned stats for {stats['total_messages']} messages")
+
+    return StatsResponse(
+        total_messages=stats["total_messages"],
+        senders_count=stats["senders_count"],
+        messages_per_sender=stats["messages_per_sender"],
+        first_message_ts=stats["first_message_ts"],
+        last_message_ts=stats["last_message_ts"]
     )

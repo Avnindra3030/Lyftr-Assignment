@@ -21,6 +21,7 @@ up:
 
 # Start with Docker Compose watch (development mode with hot-reload)
 dev:
+	docker compose build --no-cache
 	@echo ""
 	@echo "🔧 Starting in development mode with hot-reload..."
 	@echo ""

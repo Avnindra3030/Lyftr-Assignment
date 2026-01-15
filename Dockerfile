@@ -39,4 +39,5 @@ EXPOSE ${PORT}
 # Default to reload mode, can be overridden via docker-compose or CLI
 ENV UVICORN_CMD="--reload"
 
-CMD uvicorn app.main:app --host 0.0.0.0 --port $PORT $UVICORN_CMD
+# Disable uvicorn access logs (we have our own middleware)
+CMD uvicorn app.main:app --host 0.0.0.0 --port $PORT --no-access-log $UVICORN_CMD
