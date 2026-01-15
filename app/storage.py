@@ -30,10 +30,12 @@ def init_db() -> None:
     Initialize the database by creating all tables.
     Called during application startup.
     """
+    logger.debug(f"Initializing database with URL: {settings.DATABASE_URL}")
     try:
         # Import models to register them with Base.metadata
         from app.models import Message  
         
+        logger.debug("Creating database tables...")
         Base.metadata.create_all(bind=engine)
         logger.info("Database initialized successfully")
     except Exception as e:
@@ -60,11 +62,16 @@ def check_db_health() -> bool:
     Returns:
         True if DB is healthy and schema exists, False otherwise.
     """
+    logger.debug("Checking database health...")
     try:
         with SessionLocal() as db:
             # Execute a simple query to check connectivity
+            logger.debug("Testing database connectivity...")
             db.execute(text("SELECT 1"))
+            logger.debug("Database connectivity OK")
+            
             # Check if messages table exists (schema is applied)
+            logger.debug("Checking for messages table...")
             db.execute(text(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='messages'"
             ))
@@ -74,6 +81,8 @@ def check_db_health() -> bool:
             if result == 0:
                 logger.error("Database schema not applied: 'messages' table not found")
                 return False
+            logger.debug("Messages table found, schema is applied")
+        logger.debug("Database health check passed")
         return True
     except Exception as e:
         logger.error(f"Database health check failed: {e}")
@@ -94,7 +103,7 @@ def create_message(
 ) -> Tuple[bool, bool]:
     """
     Create a new message in the database (idempotent).
-    
+
     Args:
         db: Database session
         message_id: Unique message identifier
@@ -102,7 +111,7 @@ def create_message(
         to_msisdn: Recipient phone number
         ts: Message timestamp (ISO-8601 UTC)
         text: Optional message text
-    
+
     Returns:
         Tuple of (success: bool, is_duplicate: bool)
         - (True, False): Message created successfully
@@ -110,11 +119,15 @@ def create_message(
         - (False, False): Error occurred
     """
     from app.models import Message
-    
+
+    logger.info(f"Creating message: id={message_id}, from={from_msisdn}, to={to_msisdn}")
+    logger.debug(f"Message details: ts={ts}, text={text}")
+
     try:
         # Create server timestamp
         created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        
+        logger.debug(f"Server timestamp: {created_at}")
+
         message = Message(
             message_id=message_id,
             from_msisdn=from_msisdn,
@@ -123,18 +136,18 @@ def create_message(
             text=text,
             created_at=created_at
         )
-        
+
         db.add(message)
         db.commit()
-        logger.info(f"Message created: {message_id}")
+        logger.info(f"Message created successfully: {message_id}")
         return (True, False)  # Created successfully, not a duplicate
-        
+
     except IntegrityError:
         # message_id already exists - this is expected for idempotency
         db.rollback()
         logger.info(f"Duplicate message detected: {message_id}")
         return (True, True)  # Success (idempotent), is duplicate
-        
+
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to create message {message_id}: {e}")
@@ -144,14 +157,75 @@ def create_message(
 def get_message_by_id(db: Session, message_id: str):
     """
     Retrieve a message by its ID.
-    
+
     Args:
         db: Database session
         message_id: Message identifier to look up
-    
+
     Returns:
         Message object if found, None otherwise
     """
     from app.models import Message
-    
-    return db.query(Message).filter(Message.message_id == message_id).first()
+
+    logger.info(f"Looking up message by ID: {message_id}")
+    result = db.query(Message).filter(Message.message_id == message_id).first()
+    logger.info(f"Message lookup result: {'found' if result else 'not found'}")
+    return result
+
+
+def get_messages(
+    db: Session,
+    limit: int = 50,
+    offset: int = 0,
+    from_msisdn: Optional[str] = None,
+    since: Optional[str] = None,
+    q: Optional[str] = None
+) -> Tuple[list, int]:
+    """
+    Retrieve messages with pagination and filtering.
+
+    Args:
+        db: Database session
+        limit: Maximum number of messages to return (1-100)
+        offset: Number of messages to skip
+        from_msisdn: Filter by sender (exact match)
+        since: Filter messages with ts >= since (ISO-8601 UTC)
+        q: Free-text search in message text (case-insensitive)
+
+    Returns:
+        Tuple of (messages list, total count matching filters)
+    """
+    from app.models import Message
+
+    logger.info(f"Querying messages: limit={limit}, offset={offset}")
+    logger.debug(f"Filters: from={from_msisdn}, since={since}, q={q}")
+
+    # Build base query
+    query = db.query(Message)
+
+    # Apply filters
+    if from_msisdn:
+        query = query.filter(Message.from_msisdn == from_msisdn)
+        logger.debug(f"Applied from filter: {from_msisdn}")
+
+    if since:
+        query = query.filter(Message.ts >= since)
+        logger.debug(f"Applied since filter: {since}")
+
+    if q:
+        # Case-insensitive substring search
+        query = query.filter(Message.text.ilike(f"%{q}%"))
+        logger.debug(f"Applied text search filter: {q}")
+
+    # Get total count before pagination
+    total = query.count()
+    logger.debug(f"Total messages matching filters: {total}")
+
+    # Apply ordering: ts ASC, message_id ASC (deterministic)
+    query = query.order_by(Message.ts.asc(), Message.message_id.asc())
+
+    # Apply pagination
+    messages = query.offset(offset).limit(limit).all()
+    logger.info(f"Retrieved {len(messages)} of {total} total messages")
+
+    return messages, total
