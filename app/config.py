@@ -8,11 +8,14 @@ class Settings(BaseSettings):
     Follows 12-factor app configuration principles.
     """
     
-    # Pydantic v2 settings config - reads from .env file
+    # Pydantic v2 settings config
+    # env_file is only used as fallback, env vars take precedence
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        # Ensure environment variables override .env file
+        env_ignore_empty=True,
     )
     
     # Database Configuration - required from .env

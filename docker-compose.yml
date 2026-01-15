@@ -15,7 +15,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-sqlite:////data/app.db}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       WEBHOOK_SECRET: ${WEBHOOK_SECRET}
-      UVICORN_CMD: ${UVICORN_CMD:---workers 2}
+      UVICORN_CMD: ${UVICORN_CMD:---reload}
     restart: unless-stopped
     healthcheck:
       test:
