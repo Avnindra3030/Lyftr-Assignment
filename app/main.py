@@ -9,6 +9,7 @@ from app.config import settings
 from app.storage import init_db, check_db_health, get_db, create_message, get_messages, get_stats
 from app.logging_utils import setup_logging, RequestLoggingMiddleware, log_webhook_data
 from app.utils import verify_hmac_signature
+from app.metrics import record_webhook_outcome, get_metrics, get_metrics_content_type
 from app.schemas import (
     HealthResponse,
     WebhookRequest,
@@ -127,6 +128,7 @@ async def webhook(
     # Verify X-Signature header is present
     if not x_signature:
         logger.error("Missing X-Signature header")
+        record_webhook_outcome("invalid_signature")
         log_webhook_data(
             request=request,
             message_id=None,
@@ -143,6 +145,7 @@ async def webhook(
     # Verify HMAC signature
     if not verify_hmac_signature(raw_body, x_signature, settings.WEBHOOK_SECRET):
         logger.error("Invalid HMAC signature")
+        record_webhook_outcome("invalid_signature")
         log_webhook_data(
             request=request,
             message_id=None,
@@ -165,6 +168,7 @@ async def webhook(
         logger.debug("Request body validated successfully")
     except json.JSONDecodeError as e:
         logger.error(f"Invalid JSON: {e}")
+        record_webhook_outcome("validation_error")
         log_webhook_data(
             request=request,
             message_id=None,
@@ -177,6 +181,7 @@ async def webhook(
         )
     except Exception as e:
         logger.error(f"Validation error: {e}")
+        record_webhook_outcome("validation_error")
         log_webhook_data(
             request=request,
             message_id=body_dict.get("message_id") if isinstance(body_dict, dict) else None,
@@ -216,6 +221,7 @@ async def webhook(
     # Log webhook result
     result = "duplicate" if is_duplicate else "created"
     logger.info(f"Message processed: {webhook_data.message_id}, result: {result}")
+    record_webhook_outcome(result)
     log_webhook_data(
         request=request,
         message_id=webhook_data.message_id,
@@ -332,4 +338,24 @@ async def get_statistics(
         messages_per_sender=stats["messages_per_sender"],
         first_message_ts=stats["first_message_ts"],
         last_message_ts=stats["last_message_ts"]
+    )
+
+
+# =============================================================================
+# Metrics Route
+# =============================================================================
+
+@app.get("/metrics")
+async def metrics() -> Response:
+    """
+    Expose Prometheus-style metrics.
+    
+    Returns metrics in Prometheus text exposition format including:
+    - http_requests_total: Total HTTP requests by method, path, status
+    - webhook_requests_total: Webhook outcomes by result
+    - request_latency_seconds: Request latency histogram
+    """
+    return Response(
+        content=get_metrics(),
+        media_type=get_metrics_content_type()
     )

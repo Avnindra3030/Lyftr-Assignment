@@ -10,6 +10,8 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from pythonjsonlogger import jsonlogger
 
+from app.metrics import record_http_request
+
 
 # Context variable to store request_id for the current request
 request_id_ctx: ContextVar[Optional[str]] = ContextVar("request_id", default=None)
@@ -120,6 +122,16 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             
             # Calculate latency
             latency_ms = round((time.time() - start_time) * 1000, 2)
+            latency_seconds = (time.time() - start_time)
+            
+            # Record metrics (exclude /metrics endpoint to avoid self-instrumentation noise)
+            if request.url.path != "/metrics":
+                record_http_request(
+                    method=request.method,
+                    path=request.url.path,
+                    status=response.status_code,
+                    latency_seconds=latency_seconds
+                )
             
             # Build log data
             log_data = {
